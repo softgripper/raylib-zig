@@ -49,8 +49,8 @@ fn link(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     options: Options,
-) void {
-    const lib = getRaylib(b, target, optimize, options);
+) !void {
+    const lib = try getRaylib(b, target, optimize, options);
 
     const target_os = exe.rootModuleTarget().os.tag;
     switch (target_os) {
@@ -95,7 +95,7 @@ fn link(
 }
 
 var _raylib_lib_cache: ?*std.Build.Step.Compile = null;
-fn getRaylib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: Options) *std.Build.Step.Compile {
+fn getRaylib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, options: Options) !*std.Build.Step.Compile {
     if (_raylib_lib_cache) |lib| return lib else {
         const raylib = b.dependency("raylib", .{
             .target = target,
@@ -122,15 +122,29 @@ fn getRaylib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
         lib.step.dependOn(&gen_step.step);
 
         const raygui_c_path = gen_step.add("raygui.c", "#define RAYGUI_IMPLEMENTATION\n#include \"raygui.h\"\n");
+
+        var raylib_flags_arr = std.ArrayList([]const u8).init(b.allocator);
+        defer raylib_flags_arr.deinit();
+
+        try raylib_flags_arr.appendSlice(&[_][]const u8{
+            "-std=gnu99",
+            "-D_GNU_SOURCE",
+            "-DGL_SILENCE_DEPRECATION=199309L",
+            "-fno-sanitize=undefined", // https://github.com/raysan5/raylib/issues/3674
+        });
+
+        if (options.shared) {
+            try raylib_flags_arr.appendSlice(&[_][]const u8{
+                "-fPIC",
+                "-DBUILD_LIBTYPE_SHARED",
+            });
+        }
+
         lib.addCSourceFile(.{
             .file = raygui_c_path,
-            .flags = &[_][]const u8{
-                "-std=gnu99",
-                "-D_GNU_SOURCE",
-                "-DGL_SILENCE_DEPRECATION=199309L",
-                "-fno-sanitize=undefined", // https://github.com/raysan5/raylib/issues/3674
-            },
+            .flags = raylib_flags_arr.items,
         });
+
         lib.addIncludePath(raylib.path("src"));
         lib.addIncludePath(raygui_dep.path("src"));
 
@@ -187,6 +201,21 @@ pub fn build(b: *std.Build) !void {
             .name = "raw_stream",
             .path = "examples/audio/raw_stream.zig",
             .desc = "Plays a sine wave",
+        },
+        .{
+            .name = "music_stream",
+            .path = "examples/audio/music_stream.zig",
+            .desc = "Use music stream to play an audio file",
+        },
+        .{
+            .name = "sound_loading",
+            .path = "examples/audio/sound_loading.zig",
+            .desc = "Load and play a song",
+        },
+        .{
+            .name = "module_playing",
+            .path = "examples/audio/module_playing.zig",
+            .desc = "Module playing (streaming)",
         },
         .{
             .name = "basic_screen_manager",
@@ -247,6 +276,11 @@ pub fn build(b: *std.Build) !void {
             .name = "window_flags",
             .path = "examples/core/window_flags.zig",
             .desc = "Demonstrates various flags used during and after window creation",
+        },
+        .{
+            .name = "raymarching",
+            .path = "examples/shaders/raymarching.zig",
+            .desc = "Uses a raymarching in a shader to render shapes",
         },
         .{
             .name = "texture_outline",
@@ -329,16 +363,26 @@ pub fn build(b: *std.Build) !void {
             .desc = "Renders variables as text",
         },
         .{
+            .name = "text_raylib_fonts",
+            .path = "examples/text/text_raylib_fonts.zig",
+            .desc = "Show fonts included with raylib",
+        },
+        .{
+            .name = "text_writing_anim",
+            .path = "examples/text/text_writing_anim.zig",
+            .desc = "Simple text animation",
+        },
+        .{
             .name = "textures_image_loading",
             .path = "examples/textures/textures_image_loading.zig",
             .desc = "Image loading and texture creation",
         },
 
-        // .{
-        //     .name = "models_loading",
-        //     .path = "examples/models/models_loading.zig",
-        //     .desc = "Loads a model and renders it",
-        // },
+        .{
+            .name = "models_heightmap",
+            .path = "examples/models/models_heightmap.zig",
+            .desc = "Heightmap loading and drawing",
+        },
         // .{
         //     .name = "shaders_basic_lighting",
         //     .path = "examples/shaders/shaders_basic_lighting.zig",
@@ -375,7 +419,7 @@ pub fn build(b: *std.Build) !void {
             const exe_lib = try emcc.compileForEmscripten(b, ex.name, ex.path, target, optimize);
             exe_lib.root_module.addImport("raylib", raylib);
             exe_lib.root_module.addImport("raygui", raygui);
-            const raylib_lib = getRaylib(b, target, optimize, options);
+            const raylib_lib = try getRaylib(b, target, optimize, options);
 
             // Note that raylib itself isn't actually added to the exe_lib
             // output file, so it also needs to be linked with emscripten.
@@ -397,7 +441,7 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
                 .target = target,
             });
-            this.link(b, exe, target, optimize, options);
+            try this.link(b, exe, target, optimize, options);
             exe.root_module.addImport("raylib", raylib);
             exe.root_module.addImport("raygui", raygui);
 
