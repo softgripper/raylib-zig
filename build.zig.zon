@@ -5,7 +5,7 @@
     .dependencies = .{
         .raylib = .{
             .url = "git+https://github.com/raysan5/raylib#master",
-            .hash = "1220ab04b53b3f0afc80da878711f1e05293fcd23c5305ad23657846c7870d79966c",
+            .hash = "12207101b24667d27e1f6596204a3d9d8695177d554b76ad4480d2086e5d80784e5c",
         },
         .raygui = .{
             .url = "git+https://github.com/raysan5/raygui#master",
